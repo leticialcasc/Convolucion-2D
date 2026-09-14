@@ -33,7 +33,7 @@ void convolucion2D_secuencial(const float* entrada, float* salida, int ancho, in
 void procesar_lote_secuencial(const std::vector<float>& lote_entrada, std::vector<float>& lote_salida, 
                               int num_imagenes, int ancho, int alto, 
                               const float* kernel, int tam_kernel) {
-    size_t tam_imagen = ancho * alto;
+    size_t tam_imagen = ancho * alto; //pixeles tiene una imagen
     
     for (int i = 0; i < num_imagenes; ++i) {
         const float* ptr_in = &lote_entrada[i * tam_imagen];
