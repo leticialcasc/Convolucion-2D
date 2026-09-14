@@ -81,3 +81,4 @@ secuencial, OpenMP y CUDA sobre el filtrado por lotes de imágenes.
 
 - Alcántara Ascencio Leticia
 - Najar Carbajal Santiago
+- De la Cruz Fuentes Diego
