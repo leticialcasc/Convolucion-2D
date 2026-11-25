@@ -42,7 +42,7 @@ Convolucion-2D/
 - Para V2: GPU NVIDIA y CUDA Toolkit (`nvcc`) ≥ 11.5, o Google Colab/Kaggle
 - Python 3 (opcional `matplotlib`) para `analisis/resumen.py`
 
-> Versiones usadas: _(completar: g++ x.y, nvcc x.y, Python x.y)_
+> Versiones usadas: g++ 13.3.0 (Ubuntu 24.04), nvcc 13.0 (CUDA 13.0, driver 580.82.07), Python 3.12.3 (laptop) y 3.13.16 (Colab), GNU Make 4.3, Git 2.43.0.
 
 ## Compilación
 ```bash
@@ -79,7 +79,14 @@ python3 analisis/resumen.py resultados/local                     # speedup, efic
 ## Hardware de medición
 | Máquina | CPU (núcleos/hilos) | RAM | GPU | SO |
 |---|---|---|---|---|
-| _(completar)_ | | | | |
+| Laptop (`resultados/local`) | Intel Core i5-1035G1 @ 1.00 GHz (4 núcleos / 8 hilos) | 5.7 GiB visibles para WSL2 | — | Windows + WSL2 (Ubuntu 24.04) |
+| Google Colab (`resultados/colab-t4`) | Intel Xeon @ 2.00 GHz (2 vCPU) | 12 GiB | NVIDIA Tesla T4 (15 GB) | Ubuntu 24.04 |
+
+**Notas de medición**
+- V0 y V1 se midieron en la laptop; V0 y V2 en Colab. El speedup de cada versión se calcula contra el V0 de su misma máquina.
+- En la laptop se omitió el caso de 500 imágenes de 1024×1024 (≈6 GiB de RAM, no cabe en los 5.7 GiB de WSL2). En Colab sí se corrió.
+- Todas las mediciones usan 1 calentamiento y 5 repeticiones, reportando media y desviación estándar.
+- En V2, `total` incluye las copias CPU↔GPU y `kernel` mide solo el cómputo en GPU.
 
 ## Resultados
 _(Se completan con `resultados/<maquina>/resumen.csv` y las gráficas generadas.)_
