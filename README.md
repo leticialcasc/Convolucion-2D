@@ -1,84 +1,93 @@
 # Convolución 2D y filtrado de imágenes por lotes
+**Patrón stencil: Secuencial → OpenMP → CUDA**
 
-Patrón stencil: Secuencial → OpenMP → CUDA
+Cómputo Paralelo · 6BM1 · ESCOM-IPN · Proyecto integrador
 
 ## Descripción
-
-Este proyecto implementa la convolución 2D para el procesamiento y filtrado de
-imágenes por lotes, comparando tres estrategias de ejecución: secuencial,
-paralela en CPU con OpenMP y paralela en GPU con CUDA.
+Implementación de la convolución 2D para filtrado de imágenes por lotes, comparando tres estrategias de ejecución: secuencial, paralela en CPU con OpenMP y paralela en GPU con CUDA.
 
 ## Problema
-
-El filtrado de imágenes mediante convolución 2D es una operación fundamental en
-visión por computadora (desenfoque, realce de bordes, nitidez, detección de
-características para redes neuronales, etc.). En escenarios reales rara vez se
-filtra una sola imagen: aplicaciones de preprocesamiento de datasets, cámaras
-de vigilancia o pipelines de entrenamiento de modelos necesitan aplicar el
-mismo kernel a lotes de cientos o miles de imágenes. La versión ingenua, con
-cuatro ciclos anidados (imagen, fila, columna, kernel), tiene un costo de
-O(N · H · W · K²) y se vuelve impráctica en CPU secuencial cuando el número de
-imágenes (N), la resolución o el tamaño del kernel crecen. El proyecto aborda
-esta limitación implementando y comparando tres estrategias de ejecución para
-determinar cuánto y bajo qué condiciones cada una acelera el filtrado por
-lotes.
+El filtrado de imágenes mediante convolución 2D es una operación fundamental en visión por computadora (desenfoque, realce de bordes, nitidez, detección de características para redes neuronales, etc.). En escenarios reales rara vez se filtra una sola imagen: el preprocesamiento de datasets, las cámaras de vigilancia o los pipelines de entrenamiento necesitan aplicar el mismo kernel a lotes de cientos o miles de imágenes. La versión ingenua (cuatro ciclos anidados) cuesta O(N · H · W · K²) y se vuelve impráctica en CPU secuencial cuando N, la resolución o el kernel crecen.
 
 ## Datos
+Lotes de 10, 100 y 500 imágenes en tres resoluciones (256×256, 512×512, 1024×1024), con cuatro kernels: `blur3`, `blur5` (promedio), `sobel` (bordes, Sobel-X) y `sharpen` (realce).
 
-Se usará un conjunto de imágenes en escala de grises y RGB tomadas de un
-dataset público de acceso libre (por ejemplo, un subconjunto de USC-SIPI o de
-CIFAR-10/DIV2K), agrupado en lotes de distinto tamaño (10, 100 y 500 imágenes)
-y en al menos tres resoluciones (256×256, 512×512 y 1024×1024) para medir
-escalabilidad. Sobre cada imagen se aplicarán tres kernels representativos:
-promedio/blur (3×3 y 5×5, filtro separable), Sobel (detección de bordes) y
-sharpen (realce), lo que permite evaluar el efecto del tamaño del kernel
-además del tamaño del lote.
+> **Nota:** los benchmarks usan lotes sintéticos pseudoaleatorios y deterministas (misma semilla en V0, V1 y V2), generados por `generar_lote()` en `src/common.h`. Esto aísla el costo de cómputo de la lectura de disco.
 
 ## Por qué es paralelizable
-
-La convolución 2D es un patrón stencil clásico: el valor de cada píxel de
-salida depende únicamente de un vecindario fijo y acotado de píxeles de
-entrada (definido por el kernel), y es completamente independiente del
-cálculo de cualquier otro píxel de salida. Esto elimina las dependencias de
-datos entre iteraciones y permite paralelismo en varios niveles: (a) a nivel
-de píxel/fila dentro de una misma imagen, (b) a nivel de imagen dentro de un
-lote (cada imagen se procesa de forma independiente, un caso
-"embarazosamente paralelo"), y (c) a nivel de kernel/filtro si se aplican
-varios a la vez. Además, el acceso a memoria sigue un patrón regular y
-predecible (ventana deslizante), lo que favorece tanto la vectorización y el
-uso de caché en CPU como el uso de memoria compartida y el acceso coalescente
-en GPU.
+Cada píxel de salida depende solo de un vecindario fijo de la entrada y es independiente de los demás píxeles de salida → paralelismo a nivel de píxel/fila, de imagen (embarazosamente paralelo) y de kernel. El acceso a memoria es regular (ventana deslizante), lo que favorece caché/vectorización en CPU y memoria compartida/acceso coalescente en GPU.
 
 ## Versiones
+| Versión | Archivo | Descripción |
+|---|---|---|
+| V0 – Secuencial | `src/v0_secuencial.cpp` | Línea base y referencia de correctitud |
+| V1 – OpenMP | `src/v1_openmp.cpp` | `parallel for` por **lote** (imagen completa por hilo) o por **filas** (`collapse(2)` sobre imagen×fila); `schedule` static/dynamic/guided y número de hilos configurables |
+| V2 – CUDA | `src/v2_cuda.cu` | Un hilo por píxel, bloques de 16×16, malla 3D (z = imagen). Variante `global` y variante `shared` (tile + halo en memoria compartida); kernel en memoria constante; bordes con clamping |
 
-### V0 — Secuencial
+Todas las versiones usan el mismo manejo de bordes (clamping) y validan su salida contra V0 (`max_error` en el CSV).
 
-Implementación de referencia en C/C++ con ciclos anidados sobre imagen y
-kernel. Sirve como línea base de correctitud y tiempo de ejecución.
+## Estructura
+```
+Convolucion-2D/
+├── src/            # common.h, v0_secuencial.cpp, v1_openmp.cpp, v2_cuda.cu
+├── scripts/        # run_benchmarks.sh
+├── analisis/       # resumen.py (speedup, eficiencia, Karp-Flatt, gráficas)
+├── resultados/     # CSVs por máquina (resultados/<maquina>/)
+├── Makefile
+└── README.md
+```
 
-### V1 — OpenMP
+## Requisitos
+- `g++` ≥ 9 con OpenMP (Linux/WSL2/macOS con `libomp`, o MinGW-w64)
+- Para V2: GPU NVIDIA y CUDA Toolkit (`nvcc`) ≥ 11.5, o Google Colab/Kaggle
+- Python 3 (opcional `matplotlib`) para `analisis/resumen.py`
 
-Paralelización con `#pragma omp parallel for` a nivel de filas de la imagen
-y/o a nivel de lote, probando distintas políticas de reparto de carga
-(`static`, `dynamic`) y número de hilos.
+> Versiones usadas: _(completar: g++ x.y, nvcc x.y, Python x.y)_
 
-### V2 — CUDA
+## Compilación
+```bash
+make cpu                 # V0 y V1
+make gpu                 # V2 (si hace falta otra arquitectura: make gpu ARCH=sm_75)
+```
 
-Un hilo por píxel (o por bloque de píxeles) de salida; uso de memoria
-compartida para cachear el vecindario del stencil y reducir accesos a memoria
-global, con manejo explícito de bordes (padding).
+## Ejecución
+```bash
+./bin/v0_secuencial  N ancho alto kernel reps
+./bin/v1_openmp      N ancho alto kernel modo sched hilos reps [chunk]
+./bin/v2_cuda        N ancho alto kernel reps
+```
+Ejemplos:
+```bash
+./bin/v0_secuencial 100 512 512 sharpen 5
+./bin/v1_openmp     100 512 512 sharpen lote static 8 5
+./bin/v1_openmp     100 512 512 sharpen filas dynamic 8 5
+./bin/v2_cuda       100 512 512 sharpen 5
+```
+Cada ejecución imprime una fila CSV:
+`version,variante,medida,imagenes,ancho,alto,kernel,config,reps,media_ms,desv_ms,max_error`
+- `medida=total` incluye (en CUDA) copias H2D + kernel + D2H; `medida=kernel` es solo el kernel.
+- Cada medición se repite `reps` veces (≥5) tras un calentamiento; se reporta media y desviación estándar.
 
-Las tres versiones se validarán contra la misma salida de referencia y se
-compararán mediante tiempo de ejecución, speedup y eficiencia, variando
-resolución de imagen y tamaño de lote.
+### Benchmarks completos
+```bash
+./scripts/run_benchmarks.sh                                      # barrido completo -> resultados/local/
+RES=512 LOTES=100 KERNELS=sharpen ./scripts/run_benchmarks.sh    # prueba rápida
+python3 analisis/resumen.py resultados/local                     # speedup, eficiencia, Karp-Flatt, gráficas
+```
+**Importante:** el speedup se calcula contra V0 *de la misma máquina*. Si V2 se corre en Colab, corre también V0 allí (`MAQUINA=colab-t4 ./scripts/run_benchmarks.sh`).
+
+## Hardware de medición
+| Máquina | CPU (núcleos/hilos) | RAM | GPU | SO |
+|---|---|---|---|---|
+| _(completar)_ | | | | |
+
+## Resultados
+_(Se completan con `resultados/<maquina>/resumen.csv` y las gráficas generadas.)_
 
 ## Objetivo
-
-Comparar el tiempo de ejecución y el speedup obtenido entre las versiones
-secuencial, OpenMP y CUDA sobre el filtrado por lotes de imágenes.
+Comparar el tiempo de ejecución y el speedup obtenido entre las versiones secuencial, OpenMP y CUDA sobre el filtrado por lotes de imágenes.
 
 ## Integrantes
-
-- Alcántara Ascencio Leticia
-- Najar Carbajal Santiago
-- De la Cruz Fuentes Diego
+* Alcántara Ascencio Leticia
+* Najar Carbajal Santiago
+* De la Cruz Fuentes Diego
